@@ -21,8 +21,6 @@ pub fn ipv6_from_octets(octets: &[u8]) -> Ipv6Addr {
 pub fn icmpv6_checksum(raw: &[u8], source: &Ipv6Addr, destination: &Ipv6Addr) -> [u8; 2] {
     // Build into a pnet-usable format
     let packet = Icmpv6Packet::new(raw).unwrap();
-    println!("{:?}", packet);
-    println!("{:?}", packet.payload());
 
     // Calculate the checksum
     let checksum = pnet::packet::icmpv6::checksum(&packet, source, destination);

@@ -66,8 +66,6 @@ pub fn main() {
             if let Some(etherparse::IpHeader::Version6(inbound_ip_header, inbound_ip_extensions)) =
                 inbound_ip_packet.ip
             {
-                // // Only handle ICMPv6 packets
-                // if inbound_ip_header.next_header == 0x3a {
                 // Ensure the requested host is in the network
                 if let Some(targeted_host) = args
                     .network
@@ -95,11 +93,6 @@ pub fn main() {
                     };
                     let outbound_ip_header_bytes =
                         ipv6_utils::ipv6_header_to_bytes(&outbound_ip_header);
-                    println!(
-                        "{:?} {}",
-                        outbound_ip_header_bytes,
-                        outbound_ip_header_bytes.len()
-                    );
 
                     // Build a vec to store our outbound packet in
                     let mut outbound_bytes =
@@ -127,13 +120,12 @@ pub fn main() {
                     // Write the checksum to the vec
                     outbound_bytes[outbound_ip_header.header_len() + 2] = check[0];
                     outbound_bytes[outbound_ip_header.header_len() + 3] = check[1];
-                    println!("{:?}", outbound_bytes);
 
                     // Send the packet back to the client
                     tun.send(&[packet_prefix, outbound_bytes.as_slice()].concat())
                         .unwrap();
+                    println!("Sent fake timeout packet to {}", inbound_source_addr);
                 }
-                // }
             }
         }
     }
