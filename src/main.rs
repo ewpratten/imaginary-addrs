@@ -1,21 +1,14 @@
-use std::{net::Ipv6Addr, process::Command};
+use std::{net::Ipv6Addr, process::Command, vec};
 
 use clap::Parser;
 use ipnet::Ipv6Net;
 use tun_tap::Iface;
 
-#[derive(Parser, Debug)]
-#[clap(author, version, about, long_about = None)]
-struct Args {
-    /// Name of the tunnel to bring up
-    #[clap(short, long)]
-    pub interface: String,
+mod cli;
+mod ipv6_utils;
 
-    /// The network to operate with
-    #[clap(short, long)]
-    pub network: Ipv6Net,
-}
-
+use cli::Args;
+use ipv6_utils::ipv6_from_octets;
 
 pub fn main() {
     let args = Args::parse();
@@ -30,104 +23,118 @@ pub fn main() {
 
     // Configure the kernel for this interface
     Command::new("ip")
+        .args(vec!["link", "set", "up", "dev", &tun.name()])
+        .status()
+        .unwrap();
+    Command::new("ip")
         .args(vec![
             "-6",
             "addr",
             "add",
+            &gateway.to_string(),
             "dev",
             &tun.name(),
-            format!("{}/{}", gateway.to_string(), args.network.prefix_len()).as_str(),
         ])
         .status()
         .unwrap();
     Command::new("ip")
-        .args(vec!["link", "set", "up", "dev", &tun.name()])
+        .args(vec![
+            "-6",
+            "route",
+            "add",
+            format!("{}/{}", gateway.to_string(), args.network.prefix_len()).as_str(),
+            "dev",
+            &tun.name(),
+        ])
         .status()
         .unwrap();
-    print!("Kernel configuration OK");
+    Command::new("sysctl")
+        .args(vec!["-w", "net.ipv6.conf.all.forwarding=1"])
+        .status()
+        .unwrap();
+    println!("Kernel configuration OK");
 
     // Set up the packet capture
     let mut buf = [0u8; 1500];
     loop {
         let size = tun.recv(&mut buf).unwrap();
-        let clean_buf = &buf[4..size];
-        let size = size - 4;
+        let packet_prefix = &buf[..4];
 
-        // Drop small packets
-        if size < 40 {
-            println!("Packet too small! Dropping.");
-            continue;
-        }
+        // Read the packet into a reasonably parsable form
+        if let Ok(inbound_ip_packet) = etherparse::PacketHeaders::from_ip_slice(&buf[4..size]) {
+            // Ensure this is an IPv6 packet
+            if let Some(etherparse::IpHeader::Version6(inbound_ip_header, inbound_ip_extensions)) =
+                inbound_ip_packet.ip
+            {
+                // // Only handle ICMPv6 packets
+                // if inbound_ip_header.next_header == 0x3a {
+                // Ensure the requested host is in the network
+                if let Some(targeted_host) = args
+                    .network
+                    .hosts()
+                    .nth(inbound_ip_header.hop_limit as usize)
+                {
+                    // Parse the source and dest addresses
+                    let inbound_source_addr = ipv6_from_octets(&inbound_ip_header.source);
+                    let inbound_dest_addr = ipv6_from_octets(&inbound_ip_header.destination);
+                    println!(
+                        "Got ICMPv6 packet from {} destined for {}",
+                        inbound_source_addr, inbound_dest_addr
+                    );
 
-        // Read the TTL of the packet
-        let ttl = clean_buf[7];
+                    // Construct a return packet header
+                    let outbound_ip_header = etherparse::Ipv6Header {
+                        traffic_class: 0x00,
+                        flow_label: 0x00,
+                        // The payload of our return packet will include 8 control bytes, and a clone of the original packet's payload
+                        payload_length: size as u16 - 4 + 8,
+                        next_header: 0x3a,
+                        hop_limit: 0x40,
+                        source: targeted_host.octets(),
+                        destination: inbound_source_addr.octets(),
+                    };
+                    let outbound_ip_header_bytes =
+                        ipv6_utils::ipv6_header_to_bytes(&outbound_ip_header);
+                    println!(
+                        "{:?} {}",
+                        outbound_ip_header_bytes,
+                        outbound_ip_header_bytes.len()
+                    );
 
-        // Calculate the host this request is targeting
-        if let Some(targeted_host) = args.network.hosts().nth(ttl as usize) {
-            // Calculate the source host addr
-            let source_host = {
-                let bytes = &clean_buf[8..24];
-                Ipv6Addr::new(
-                    u16::from_be_bytes([bytes[0], bytes[1]]),
-                    u16::from_be_bytes([bytes[2], bytes[3]]),
-                    u16::from_be_bytes([bytes[4], bytes[5]]),
-                    u16::from_be_bytes([bytes[6], bytes[7]]),
-                    u16::from_be_bytes([bytes[8], bytes[9]]),
-                    u16::from_be_bytes([bytes[10], bytes[11]]),
-                    u16::from_be_bytes([bytes[12], bytes[13]]),
-                    u16::from_be_bytes([bytes[14], bytes[15]]),
-                )
-            };
+                    // Build a vec to store our outbound packet in
+                    let mut outbound_bytes =
+                        vec![0u8; outbound_ip_header_bytes.len() + size as usize - 4 + 8];
 
-            // Print some debug info
-            println!("Got: {:?}", &clean_buf);
-            println!(
-                "{} sent packet destined for: {}",
-                source_host, targeted_host
-            );
+                    // Write our header to the vec
+                    outbound_bytes[..outbound_ip_header_bytes.len()]
+                        .copy_from_slice(&outbound_ip_header_bytes);
 
-            // Build a return packet
-            let mut return_packet = vec![0u8; size + 8 + 40];
+                    // Write our control bytes to the vec
+                    outbound_bytes[outbound_ip_header_bytes.len()] = 0x03;
+                    // The next 7 bytes are zeros
 
-            // Set the packet version (IPv6) and size
-            return_packet[0] = 0x60;
-            let split_size = (size + 8).to_be_bytes();
-            println!("{:?}", split_size);
-            return_packet[4] = split_size[6];
-            return_packet[5] = split_size[7];
+                    // Copy the original packet's payload to the vec
+                    outbound_bytes[outbound_ip_header_bytes.len() + 8..]
+                        .copy_from_slice(&buf[4..size]);
 
-            // Various IP packet consts
-            return_packet[6] = 0x3a;
-            return_packet[7] = 0x40;
+                    // Calculate the checksum for the packet
+                    let check = ipv6_utils::icmpv6_checksum(
+                        &outbound_bytes[outbound_ip_header_bytes.len()..],
+                        &targeted_host,
+                        &inbound_source_addr,
+                    );
 
-            // Set the source address as the targeted host
-            return_packet[8..24].copy_from_slice(&targeted_host.octets());
+                    // Write the checksum to the vec
+                    outbound_bytes[outbound_ip_header.header_len() + 2] = check[0];
+                    outbound_bytes[outbound_ip_header.header_len() + 3] = check[1];
+                    println!("{:?}", outbound_bytes);
 
-            // Set the destination address as the original source address
-            return_packet[24..40].copy_from_slice(&source_host.octets());
-
-            // Set more ICMP constants
-            return_packet[40] = 0x03;
-            return_packet[41] = 0x00;
-            return_packet[44] = 0x00;
-            return_packet[45] = 0x00;
-            return_packet[46] = 0x00;
-            return_packet[47] = 0x00;
-
-            // Copy the original packet into the return packet
-            for i in 0..size {
-                return_packet[i + 48] = clean_buf[i];
+                    // Send the packet back to the client
+                    tun.send(&[packet_prefix, outbound_bytes.as_slice()].concat())
+                        .unwrap();
+                }
+                // }
             }
-
-            // Magic
-            let checksum = calculate_checksum(&mut return_packet[8..],  targeted_host, source_host, (size + 8 )as u16);
-            return_packet[42] = checksum[0];
-            return_packet[43] = checksum[1];
-
-            // Send the packet back to the tunnel
-            let final_packet = vec![buf[0..4].to_vec(), return_packet].concat();
-            println!("Returning: {:?}", &final_packet);
-            assert!(tun.send(&final_packet).unwrap() == size + 8 + 40 + 4);
         }
     }
 }
