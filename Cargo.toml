@@ -1,17 +1,18 @@
 [package]
-name = "<crate_name>"
+name = "imaginary-addrs"
 version = "0.1.0"
 authors = ["Evan Pratten <ewpratten@gmail.com>"]
 edition = "2021"
-description = "<description>"
-documentation = "https://docs.rs/<crate_name>"
+description = "A utility for accepting traceroute on a whole /112 address block without 65 thousand hosts"
 readme = "README.md"
-homepage = "https://github.com/ewpratten/<repo_name>"
-repository = "https://github.com/ewpratten/<repo_name>"
+homepage = "https://github.com/ewpratten/imaginary-addrs"
+repository = "https://github.com/ewpratten/imaginary-addrs"
 license = "GPL-3.0"
 keywords = []
 categories = []
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
+clap = { version = "3.2.5", features = ["derive"] }
+tun-tap = "0.1.2"
+ipnet = { version = "2.5.0", features = ["serde"] }
