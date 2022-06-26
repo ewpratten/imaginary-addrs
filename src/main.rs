@@ -16,46 +16,6 @@ struct Args {
     pub network: Ipv6Net,
 }
 
-// Casually snagged from: https://dev.to/xphoniex/ii-implementing-icmp-in-rust-3bk5
-fn calculate_checksum(data: &mut [u8], source_addr: Ipv6Addr, dest_addr: Ipv6Addr, len: u16) -> [u8; 2] {
-
-    // Build the IPv6 pseudo-header
-    let mut pseudo_header = [0; 38];
-    pseudo_header[0..16].copy_from_slice(&source_addr.octets());
-    pseudo_header[16..32].copy_from_slice(&dest_addr.octets());
-    pseudo_header[32] = 0x00;
-    pseudo_header[33] = 0x20;
-    pseudo_header[34] = 0x00;
-    pseudo_header[35] = 0x00;
-    pseudo_header[36] = 0x00;
-    pseudo_header[37] = 0x3a;
-
-    // Create our new data with the pseudo-header added
-    let mut new_data = pseudo_header.to_vec();
-    new_data.extend_from_slice(&data);//(&data[2..]);
-
-
-    let mut f = 0;
-    let mut chk: u32 = 0;
-    while f + 2 <= new_data.len() {
-        chk += u16::from_le_bytes(new_data[f..f + 2].try_into().unwrap()) as u32;
-
-        f += 2;
-    }
-
-    while chk > 0xffff {
-        chk = (chk & 0xffff) + (chk >> 2 * 8);
-    }
-
-    let mut chk = chk as u16;
-
-    chk = !chk & 0xffff;
-
-    // endianness
-    chk = chk >> 8 | ((chk & 0xff) << 8);
-
-    return [(chk >> 8) as u8, (chk & 0xff) as u8];
-}
 
 pub fn main() {
     let args = Args::parse();
