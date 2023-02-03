@@ -16,5 +16,5 @@ categories = []
 clap = { version = "3.2.5", features = ["derive"] }
 tun-tap = "0.1.2"
 ipnet = { version = "2.5.0", features = ["serde"] }
-pnet = "^0.29.0"
+pnet = "^0.33.0"
 etherparse = "0.10.1"
