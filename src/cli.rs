@@ -16,4 +16,8 @@ pub struct Args {
     /// Disable kernel configuration
     #[clap(short, long)]
     pub no_config: bool,
+
+    /// Print debug log
+    #[clap(short, long)]
+    pub verbose: bool,
 }

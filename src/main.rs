@@ -77,10 +77,12 @@ pub fn main() {
                     // Parse the source and dest addresses
                     let inbound_source_addr = ipv6_from_octets(&inbound_ip_header.source);
                     let inbound_dest_addr = ipv6_from_octets(&inbound_ip_header.destination);
-                    println!(
-                        "Got ICMPv6 packet from {} destined for {}",
-                        inbound_source_addr, inbound_dest_addr
-                    );
+                    if args.verbose {
+                        println!(
+                            "Got ICMPv6 packet from {} destined for {}",
+                            inbound_source_addr, inbound_dest_addr
+                        );
+                    }
 
                     // Construct a return packet header
                     let outbound_ip_header = etherparse::Ipv6Header {
@@ -126,7 +128,9 @@ pub fn main() {
                     // Send the packet back to the client
                     tun.send(&[packet_prefix, outbound_bytes.as_slice()].concat())
                         .unwrap();
-                    println!("Sent fake timeout packet to {}", inbound_source_addr);
+                    if args.verbose {
+                        println!("Sent fake timeout packet to {}", inbound_source_addr);
+                    }
                 }
             }
         }
