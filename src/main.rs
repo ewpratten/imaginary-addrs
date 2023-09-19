@@ -21,38 +21,40 @@ pub fn main() {
     let gateway = args.network.hosts().nth(1).unwrap();
     println!("Selected the following gateway: {}", gateway);
 
-    // Configure the kernel for this interface
-    Command::new("ip")
-        .args(vec!["link", "set", "up", "dev", &tun.name()])
-        .status()
-        .unwrap();
-    Command::new("ip")
-        .args(vec![
-            "-6",
-            "addr",
-            "add",
-            &gateway.to_string(),
-            "dev",
-            &tun.name(),
-        ])
-        .status()
-        .unwrap();
-    Command::new("ip")
-        .args(vec![
-            "-6",
-            "route",
-            "add",
-            format!("{}/{}", gateway.to_string(), args.network.prefix_len()).as_str(),
-            "dev",
-            &tun.name(),
-        ])
-        .status()
-        .unwrap();
-    Command::new("sysctl")
-        .args(vec!["-w", "net.ipv6.conf.all.forwarding=1"])
-        .status()
-        .unwrap();
-    println!("Kernel configuration OK");
+    if !args.no_config {
+        // Configure the kernel for this interface
+        Command::new("ip")
+            .args(vec!["link", "set", "up", "dev", &tun.name()])
+            .status()
+            .unwrap();
+        Command::new("ip")
+            .args(vec![
+                "-6",
+                "addr",
+                "add",
+                &gateway.to_string(),
+                "dev",
+                &tun.name(),
+            ])
+            .status()
+            .unwrap();
+        Command::new("ip")
+            .args(vec![
+                "-6",
+                "route",
+                "add",
+                format!("{}/{}", gateway.to_string(), args.network.prefix_len()).as_str(),
+                "dev",
+                &tun.name(),
+            ])
+            .status()
+            .unwrap();
+        Command::new("sysctl")
+            .args(vec!["-w", "net.ipv6.conf.all.forwarding=1"])
+            .status()
+            .unwrap();
+        println!("Kernel configuration OK");
+    }
 
     // Set up the packet capture
     let mut buf = [0u8; 1500];
