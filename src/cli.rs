@@ -12,4 +12,12 @@ pub struct Args {
     /// The network to operate with
     #[clap(short, long)]
     pub network: Ipv6Net,
+
+    /// Disable kernel configuration
+    #[clap(short, long)]
+    pub no_config: bool,
+
+    /// Print debug log
+    #[clap(short, long)]
+    pub verbose: bool,
 }

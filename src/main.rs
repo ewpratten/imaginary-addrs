@@ -21,38 +21,40 @@ pub fn main() {
     let gateway = args.network.hosts().nth(1).unwrap();
     println!("Selected the following gateway: {}", gateway);
 
-    // Configure the kernel for this interface
-    Command::new("ip")
-        .args(vec!["link", "set", "up", "dev", &tun.name()])
-        .status()
-        .unwrap();
-    Command::new("ip")
-        .args(vec![
-            "-6",
-            "addr",
-            "add",
-            &gateway.to_string(),
-            "dev",
-            &tun.name(),
-        ])
-        .status()
-        .unwrap();
-    Command::new("ip")
-        .args(vec![
-            "-6",
-            "route",
-            "add",
-            format!("{}/{}", gateway.to_string(), args.network.prefix_len()).as_str(),
-            "dev",
-            &tun.name(),
-        ])
-        .status()
-        .unwrap();
-    Command::new("sysctl")
-        .args(vec!["-w", "net.ipv6.conf.all.forwarding=1"])
-        .status()
-        .unwrap();
-    println!("Kernel configuration OK");
+    if !args.no_config {
+        // Configure the kernel for this interface
+        Command::new("ip")
+            .args(vec!["link", "set", "up", "dev", &tun.name()])
+            .status()
+            .unwrap();
+        Command::new("ip")
+            .args(vec![
+                "-6",
+                "addr",
+                "add",
+                &gateway.to_string(),
+                "dev",
+                &tun.name(),
+            ])
+            .status()
+            .unwrap();
+        Command::new("ip")
+            .args(vec![
+                "-6",
+                "route",
+                "add",
+                format!("{}/{}", gateway.to_string(), args.network.prefix_len()).as_str(),
+                "dev",
+                &tun.name(),
+            ])
+            .status()
+            .unwrap();
+        Command::new("sysctl")
+            .args(vec!["-w", "net.ipv6.conf.all.forwarding=1"])
+            .status()
+            .unwrap();
+        println!("Kernel configuration OK");
+    }
 
     // Set up the packet capture
     let mut buf = [0u8; 1500];
@@ -75,10 +77,12 @@ pub fn main() {
                     // Parse the source and dest addresses
                     let inbound_source_addr = ipv6_from_octets(&inbound_ip_header.source);
                     let inbound_dest_addr = ipv6_from_octets(&inbound_ip_header.destination);
-                    println!(
-                        "Got ICMPv6 packet from {} destined for {}",
-                        inbound_source_addr, inbound_dest_addr
-                    );
+                    if args.verbose {
+                        println!(
+                            "Got ICMPv6 packet from {} destined for {}",
+                            inbound_source_addr, inbound_dest_addr
+                        );
+                    }
 
                     // Construct a return packet header
                     let outbound_ip_header = etherparse::Ipv6Header {
@@ -124,7 +128,9 @@ pub fn main() {
                     // Send the packet back to the client
                     tun.send(&[packet_prefix, outbound_bytes.as_slice()].concat())
                         .unwrap();
-                    println!("Sent fake timeout packet to {}", inbound_source_addr);
+                    if args.verbose {
+                        println!("Sent fake timeout packet to {}", inbound_source_addr);
+                    }
                 }
             }
         }
